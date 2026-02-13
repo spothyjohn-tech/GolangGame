@@ -1,4 +1,3 @@
-// items/items.go
 package items
 
 type Rarity string
