@@ -81,7 +81,7 @@ func main() {
 			fmt.Println("\n=== PvP РЕЖИМ ===")
 			fmt.Println("Подключение к серверу localhost:8080...")
 			
-			pvpClient := pvp.NewPvPClient("http://localhost:8080")
+			pvpClient := pvp.NewPvPClient("https://fluffy-space-spork-wrjqg7qq9p64fv9p5-8080.app.github.dev/")
 			result := pvpClient.Play(p)
 			
 			if result == "loss" {
@@ -99,7 +99,7 @@ func main() {
 			fmt.Println("Подключение к чат-серверу localhost:8080...")
 			
 			// Создаем клиент
-			chatClient := client.NewChatClient("http://localhost:8080")
+			chatClient := client.NewChatClient("https://fluffy-space-spork-wrjqg7qq9p64fv9p5-8080.app.github.dev/")
 			
 			// Запускаем чат (он БЛОКИРУЕТ выполнение до выхода)
 			chatClient.Start()
