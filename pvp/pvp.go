@@ -19,7 +19,12 @@ type PvPClient struct {
 	matchID    string
 	playerName string
 	running    bool
+	chatLastCount int
+	chatRunning   bool
 }
+
+
+
 
 func NewPvPClient(serverURL string) *PvPClient {
 	// Убираем слеш в конце, если есть
@@ -132,7 +137,9 @@ func (c *PvPClient) checkMatchStatus() (string, string) {
 
 func (c *PvPClient) startBattle(p *player.Player) string {
 	fmt.Println("\n=== БОЙ НАЧИНАЕТСЯ ===")
-
+	c.chatRunning = true
+	go c.receivePvPChat()
+	go c.sendPvPChat()
 	for c.running {
 		resp, err := c.httpClient.Get(fmt.Sprintf("%s/pvp/battle?matchId=%s&player=%s", c.serverURL, c.matchID, c.playerName))
 		if err != nil {
@@ -147,6 +154,7 @@ func (c *PvPClient) startBattle(p *player.Player) string {
 
 		if strings.HasPrefix(status, "finished:") {
 			c.running = false
+			c.chatRunning = false
 			parts := strings.Split(status, ":")
 			if len(parts) == 2 {
 				switch parts[1] {
@@ -193,8 +201,9 @@ func (c *PvPClient) startBattle(p *player.Player) string {
 		}
 
 		time.Sleep(500 * time.Millisecond)
-	}
 
+	}
+	c.chatRunning = false
 	return "error"
 }
 
@@ -269,3 +278,51 @@ func (c *PvPClient) chooseBlock() int {
 		fmt.Println("❌ Неверный ввод! Введите число 1, 2 или 3.")
 	}
 }
+
+func (c *PvPClient) receivePvPChat() {
+	for c.chatRunning {
+		resp, err := c.httpClient.Get(
+			fmt.Sprintf("%s/pvp/chat/get?matchId=%s", c.serverURL, c.matchID),
+		)
+		if err != nil {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+
+		if len(lines) > c.chatLastCount {
+			for i := c.chatLastCount; i < len(lines); i++ {
+				fmt.Printf("\n💬 %s\n", lines[i])
+			}
+			c.chatLastCount = len(lines)
+		}
+
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func (c *PvPClient) sendPvPChat() {
+	reader := bufio.NewReader(os.Stdin)
+
+	for c.chatRunning {
+		text, _ := reader.ReadString('\n')
+		text = strings.TrimSpace(text)
+
+		if text == "" {
+			continue
+		}
+
+		data := fmt.Sprintf("%s|%s|%s", c.matchID, c.playerName, text)
+
+		c.httpClient.Post(
+			fmt.Sprintf("%s/pvp/chat/send", c.serverURL),
+			"text/plain",
+			strings.NewReader(data),
+		)
+	}
+}
+

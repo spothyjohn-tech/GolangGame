@@ -42,9 +42,10 @@ type PvPMatch struct {
 	Move2     *MoveData
 	Result    string
 	mutex     sync.RWMutex
-	// Новые поля для хранения результатов
 	ResultForPlayer1 string
 	ResultForPlayer2 string
+	ChatHistory []string
+	ChatMutex   sync.RWMutex
 }
 
 type MoveData struct {
@@ -74,6 +75,8 @@ func (s *ChatServer) Start(port string) {
 	http.HandleFunc("/pvp/status", s.handlePvPStatus)
 	http.HandleFunc("/pvp/battle", s.handlePvPBattle)
 	http.HandleFunc("/pvp/move", s.handlePvPMove)
+	http.HandleFunc("/pvp/chat/send", s.handlePvPChatSend)
+	http.HandleFunc("/pvp/chat/get", s.handlePvPChatGet)
 
 	s.logCh <- "Сервер запущен на порту " + port
 	http.ListenAndServe(":"+port, nil)
@@ -121,7 +124,7 @@ func (s *ChatServer) handleRequests(w http.ResponseWriter, r *http.Request) {
 		}
 
 		message := strings.TrimSpace(string(body))
-		if message != "" { // <-- ДОБАВИТЬ ЭТУ ПРОВЕРКУ
+		if message != "" { 
 			s.addMessage(message)
 			s.logCh <- "Клиент: " + message
 		}
@@ -131,7 +134,7 @@ func (s *ChatServer) handleRequests(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		history := s.getHistory()
 		for _, msg := range history {
-			if msg != "" { // <-- И ЭТУ
+			if msg != "" { 
 				fmt.Fprintln(w, msg)
 			}
 		}
@@ -144,6 +147,7 @@ func (s *ChatServer) handleRequests(w http.ResponseWriter, r *http.Request) {
 // ========== PvP ОБРАБОТЧИКИ ==========
 
 func (s *ChatServer) handlePvPJoin(w http.ResponseWriter, r *http.Request) {
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -191,6 +195,7 @@ func (s *ChatServer) handlePvPJoin(w http.ResponseWriter, r *http.Request) {
 			Player1HP: player1.HP,
 			Player2HP: player.HP,
 			Round:     1,
+			ChatHistory: make([]string, 0),
 		}
 
 		s.pvpMutex.Lock()
@@ -454,3 +459,57 @@ func calculatePvPDamage(strength, attack, block int) int {
 	return damage
 }
 
+func (s *ChatServer) handlePvPChatSend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, _ := io.ReadAll(r.Body)
+	// Формат: matchID|playerName|message
+	parts := strings.SplitN(string(body), "|", 3)
+	if len(parts) < 3 {
+		http.Error(w, "Invalid data", http.StatusBadRequest)
+		return
+	}
+
+	matchID := parts[0]
+	playerName := parts[1]
+	message := parts[2]
+
+	s.pvpMutex.RLock()
+	match, exists := s.pvpMatches[matchID]
+	s.pvpMutex.RUnlock()
+
+	if !exists {
+		http.Error(w, "Match not found", http.StatusNotFound)
+		return
+	}
+
+	fullMessage := fmt.Sprintf("[%s]: %s", playerName, message)
+
+	match.ChatMutex.Lock()
+	match.ChatHistory = append(match.ChatHistory, fullMessage)
+	match.ChatMutex.Unlock()
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *ChatServer) handlePvPChatGet(w http.ResponseWriter, r *http.Request) {
+	matchID := r.URL.Query().Get("matchId")
+
+	s.pvpMutex.RLock()
+	match, exists := s.pvpMatches[matchID]
+	s.pvpMutex.RUnlock()
+
+	if !exists {
+		http.Error(w, "Match not found", http.StatusNotFound)
+		return
+	}
+
+	match.ChatMutex.RLock()
+	for _, msg := range match.ChatHistory {
+		fmt.Fprintln(w, msg)
+	}
+	match.ChatMutex.RUnlock()
+}
