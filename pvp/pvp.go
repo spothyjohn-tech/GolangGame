@@ -14,17 +14,14 @@ import (
 )
 
 type PvPClient struct {
-	serverURL  string
-	httpClient *http.Client
-	matchID    string
-	playerName string
-	running    bool
+	serverURL     string
+	httpClient    *http.Client
+	matchID       string
+	playerName    string
+	running       bool
 	chatLastCount int
 	chatRunning   bool
 }
-
-
-
 
 func NewPvPClient(serverURL string) *PvPClient {
 	// Убираем слеш в конце, если есть
@@ -138,7 +135,7 @@ func (c *PvPClient) checkMatchStatus() (string, string) {
 func (c *PvPClient) startBattle(p *player.Player) string {
 	fmt.Println("\n=== БОЙ НАЧИНАЕТСЯ ===")
 	c.chatRunning = true
-	go c.receivePvPChat()
+
 	go c.sendPvPChat()
 	for c.running {
 		resp, err := c.httpClient.Get(fmt.Sprintf("%s/pvp/battle?matchId=%s&player=%s", c.serverURL, c.matchID, c.playerName))
@@ -181,21 +178,84 @@ func (c *PvPClient) startBattle(p *player.Player) string {
 			parts := strings.Split(status, ":")
 			if len(parts) == 2 {
 				turnPlayer := parts[1]
-				if turnPlayer == c.playerName {
-					fmt.Println("\n⚔️ ВАШ ХОД!")
-					fmt.Printf("❤️ Ваше здоровье: %d/%d\n", p.HP, p.GetMaxHP())
 
+				if turnPlayer == c.playerName {
+					// ===== ВАШ ХОД =====
+					fmt.Println("\n⚔️ ВАШ ХОД!")
+					fmt.Println("1 — Атаковать")
+					fmt.Println("2 — Написать сообщение")
+
+					reader := bufio.NewReader(os.Stdin)
+					fmt.Print("Выберите: ")
+					choiceRaw, _ := reader.ReadString('\n')
+					choiceRaw = strings.TrimSpace(choiceRaw)
+
+					if choiceRaw == "2" {
+						fmt.Print("Введите сообщение: ")
+						msg, _ := reader.ReadString('\n')
+						msg = strings.TrimSpace(msg)
+
+						if msg != "" {
+							data := fmt.Sprintf("%s|%s|%s", c.matchID, c.playerName, msg)
+							c.httpClient.Post(
+								fmt.Sprintf("%s/pvp/chat/send", c.serverURL),
+								"text/plain",
+								strings.NewReader(data),
+							)
+						}
+						continue
+					}
+
+					// Если выбрал атаковать
 					attack := c.chooseHit()
 					block := c.chooseBlock()
 
 					moveData := fmt.Sprintf("%s|%s|%d|%d", c.matchID, c.playerName, attack, block)
-					c.httpClient.Post(fmt.Sprintf("%s/pvp/move", c.serverURL), "text/plain", strings.NewReader(moveData))
+					c.httpClient.Post(
+						fmt.Sprintf("%s/pvp/move", c.serverURL),
+						"text/plain",
+						strings.NewReader(moveData),
+					)
 
-					fmt.Println("\n⏳ Ожидание хода противника...")
+					fmt.Println("\n⏳ Ход отправлен...")
 					time.Sleep(1 * time.Second)
+
 				} else {
-					fmt.Printf("\n⏳ Ожидание хода %s...\n", turnPlayer)
-					time.Sleep(2 * time.Second)
+					// ===== ОЖИДАНИЕ =====
+					fmt.Println("\n⏳ Ожидание хода противника...")
+					fmt.Println("Вы можете писать сообщения.")
+
+					reader := bufio.NewReader(os.Stdin)
+
+					for {
+						fmt.Print("💬 > ")
+						text, _ := reader.ReadString('\n')
+						text = strings.TrimSpace(text)
+
+						if text == "" {
+							continue
+						}
+
+						// Проверяем не настал ли наш ход
+						checkResp, err := c.httpClient.Get(
+							fmt.Sprintf("%s/pvp/battle?matchId=%s&player=%s",
+								c.serverURL, c.matchID, c.playerName),
+						)
+						if err == nil {
+							body, _ := io.ReadAll(checkResp.Body)
+							checkResp.Body.Close()
+							if strings.HasPrefix(string(body), "wait_turn:"+c.playerName) {
+								break
+							}
+						}
+
+						data := fmt.Sprintf("%s|%s|%s", c.matchID, c.playerName, text)
+						c.httpClient.Post(
+							fmt.Sprintf("%s/pvp/chat/send", c.serverURL),
+							"text/plain",
+							strings.NewReader(data),
+						)
+					}
 				}
 			}
 		}
@@ -279,32 +339,6 @@ func (c *PvPClient) chooseBlock() int {
 	}
 }
 
-func (c *PvPClient) receivePvPChat() {
-	for c.chatRunning {
-		resp, err := c.httpClient.Get(
-			fmt.Sprintf("%s/pvp/chat/get?matchId=%s", c.serverURL, c.matchID),
-		)
-		if err != nil {
-			time.Sleep(2 * time.Second)
-			continue
-		}
-
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-
-		lines := strings.Split(strings.TrimSpace(string(body)), "\n")
-
-		if len(lines) > c.chatLastCount {
-			for i := c.chatLastCount; i < len(lines); i++ {
-				fmt.Printf("\n💬 %s\n", lines[i])
-			}
-			c.chatLastCount = len(lines)
-		}
-
-		time.Sleep(2 * time.Second)
-	}
-}
-
 func (c *PvPClient) sendPvPChat() {
 	reader := bufio.NewReader(os.Stdin)
 
@@ -325,4 +359,3 @@ func (c *PvPClient) sendPvPChat() {
 		)
 	}
 }
-
