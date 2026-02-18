@@ -15,15 +15,15 @@ type ChatServer struct {
 	history []string
 	mutex   sync.RWMutex
 	logCh   chan string
-	
+
 	// PvP данные
-	pvpQueue  []*PvPPlayer
-	pvpMatches map[string]*PvPMatch
-	pvpMutex  sync.RWMutex
-	queueMutex sync.Mutex
-	matchCounter int
+	pvpQueue        []*PvPPlayer
+	pvpMatches      map[string]*PvPMatch
+	pvpMutex        sync.RWMutex
+	queueMutex      sync.Mutex
+	matchCounter    int
 	registeredNicks map[string]bool
-	nickMutex sync.Mutex
+	nickMutex       sync.Mutex
 }
 
 type PvPPlayer struct {
@@ -34,21 +34,20 @@ type PvPPlayer struct {
 }
 
 type PvPMatch struct {
-	ID        string
-	Player1   *PvPPlayer
-	Player2   *PvPPlayer
-	Player1HP int
-	Player2HP int
-	Round     int
-	Move1     *MoveData
-	Move2     *MoveData
-	Result    string
-	mutex     sync.RWMutex
-	// Новые поля для хранения результатов
+	ID               string
+	Player1          *PvPPlayer
+	Player2          *PvPPlayer
+	Player1HP        int
+	Player2HP        int
+	Round            int
+	Move1            *MoveData
+	Move2            *MoveData
+	Result           string
+	mutex            sync.RWMutex
 	ResultForPlayer1 string
 	ResultForPlayer2 string
-	Chat      []string     // Эфемерный чат
-	chatMutex sync.Mutex
+	Chat             []string
+	chatMutex        sync.Mutex
 }
 
 type MoveData struct {
@@ -59,11 +58,11 @@ type MoveData struct {
 func NewChatServer() *ChatServer {
 	return &ChatServer{
 		registeredNicks: make(map[string]bool),
-		history:    make([]string, 0),
-		logCh:      make(chan string, 20),
-		pvpQueue:   make([]*PvPPlayer, 0),
-		pvpMatches: make(map[string]*PvPMatch),
-		matchCounter: 0,
+		history:         make([]string, 0),
+		logCh:           make(chan string, 20),
+		pvpQueue:        make([]*PvPPlayer, 0),
+		pvpMatches:      make(map[string]*PvPMatch),
+		matchCounter:    0,
 	}
 }
 
@@ -77,7 +76,7 @@ func (s *ChatServer) Start(port string) {
 	http.HandleFunc("/register-nick", s.handleRegisterNick)
 	http.HandleFunc("/pvp/chat", s.HandlePvPChat)
 	http.HandleFunc("/pvp/chat/history", s.HandlePvPChatHistory)
-	
+
 	// PvP
 	http.HandleFunc("/pvp/join", s.handlePvPJoin)
 	http.HandleFunc("/pvp/status", s.handlePvPStatus)
@@ -130,7 +129,7 @@ func (s *ChatServer) handleRequests(w http.ResponseWriter, r *http.Request) {
 		}
 
 		message := strings.TrimSpace(string(body))
-		if message != "" { 
+		if message != "" {
 			s.addMessage(message)
 			s.logCh <- "Клиент: " + message
 		}
@@ -140,7 +139,7 @@ func (s *ChatServer) handleRequests(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		history := s.getHistory()
 		for _, msg := range history {
-			if msg != "" { 
+			if msg != "" {
 				fmt.Fprintln(w, msg)
 			}
 		}
@@ -182,17 +181,28 @@ func (s *ChatServer) handlePvPJoin(w http.ResponseWriter, r *http.Request) {
 		Strength: strength,
 	}
 
+	s.pvpMutex.RLock()
+	for _, m := range s.pvpMatches {
+		if m.Player1.Name == player.Name || m.Player2.Name == player.Name {
+			s.pvpMutex.RUnlock()
+			fmt.Fprint(w, "already_in_match")
+			return
+		}
+	}
+	s.pvpMutex.RUnlock()
+
 	s.queueMutex.Lock()
 	defer s.queueMutex.Unlock()
 
 	// Если есть игрок в очереди, создаем матч
 	if len(s.pvpQueue) > 0 {
+
 		player1 := s.pvpQueue[0]
 		s.pvpQueue = s.pvpQueue[1:]
 
 		s.matchCounter++
 		matchID := fmt.Sprintf("match_%d", s.matchCounter)
-		
+
 		match := &PvPMatch{
 			ID:        matchID,
 			Player1:   player1,
@@ -207,10 +217,10 @@ func (s *ChatServer) handlePvPJoin(w http.ResponseWriter, r *http.Request) {
 		s.pvpMutex.Unlock()
 
 		// Отвечаем текущему игроку
-		response := fmt.Sprintf("match:%s|%s|%d|%d|%d", 
+		response := fmt.Sprintf("match:%s|%s|%d|%d|%d",
 			matchID, player1.Name, player1.HP, player1.MaxHP, player1.Strength)
 		fmt.Fprint(w, response)
-		
+
 		s.logCh <- fmt.Sprintf("PvP: Создан матч %s: %s vs %s", matchID, player1.Name, player.Name)
 	} else {
 		// Добавляем в очередь
@@ -222,7 +232,7 @@ func (s *ChatServer) handlePvPJoin(w http.ResponseWriter, r *http.Request) {
 
 func (s *ChatServer) handlePvPStatus(w http.ResponseWriter, r *http.Request) {
 	playerName := r.URL.Query().Get("player")
-	
+
 	// Проверяем, есть ли матч для игрока
 	s.pvpMutex.RLock()
 	for _, match := range s.pvpMatches {
@@ -234,8 +244,8 @@ func (s *ChatServer) handlePvPStatus(w http.ResponseWriter, r *http.Request) {
 			} else {
 				opponent = match.Player1
 			}
-			
-			response := fmt.Sprintf("match:%s|%s|%d|%d|%d", 
+
+			response := fmt.Sprintf("match:%s|%s|%d|%d|%d",
 				match.ID, opponent.Name, opponent.HP, opponent.MaxHP, opponent.Strength)
 			s.pvpMutex.RUnlock()
 			fmt.Fprint(w, response)
@@ -243,7 +253,7 @@ func (s *ChatServer) handlePvPStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.pvpMutex.RUnlock()
-	
+
 	fmt.Fprint(w, "waiting")
 }
 
@@ -263,6 +273,19 @@ func (s *ChatServer) handlePvPBattle(w http.ResponseWriter, r *http.Request) {
 	match.mutex.Lock()
 	defer match.mutex.Unlock()
 
+	// if match.Move1 != nil && match.Move2 != nil {
+	// 	if match.ResultForPlayer1 != "" && match.Player1.Name == playerName {
+	// 		fmt.Fprint(w, match.ResultForPlayer1)
+	// 		match.ResultForPlayer1 = ""
+	// 		return
+	// 	}
+	// 	if match.ResultForPlayer2 != "" && match.Player2.Name == playerName {
+	// 		fmt.Fprint(w, match.ResultForPlayer2)
+	// 		match.ResultForPlayer2 = ""
+	// 		return
+	// 	}
+	// }
+
 	// Проверка завершения боя
 	if match.Player1HP <= 0 || match.Player2HP <= 0 {
 		if match.Player1HP <= 0 && match.Player2HP <= 0 {
@@ -280,6 +303,11 @@ func (s *ChatServer) handlePvPBattle(w http.ResponseWriter, r *http.Request) {
 				fmt.Fprint(w, "finished:win")
 			}
 		}
+		match.Player1.HP = match.Player1.MaxHP
+		match.Player2.HP = match.Player2.MaxHP
+		s.pvpMutex.Lock()
+		delete(s.pvpMatches, matchID)
+		s.pvpMutex.Unlock()
 		return
 	}
 
@@ -408,40 +436,40 @@ func (s *ChatServer) handlePvPMove(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *ChatServer) processPvPRound(match *PvPMatch) {
-    // Сохраняем здоровье ДО для логирования
-    oldPlayer1HP := match.Player1HP
-    oldPlayer2HP := match.Player2HP
-    
-    // Расчет урона для игрока 1 (от атаки игрока 2)
-    damage1 := calculatePvPDamage(match.Player2.Strength, match.Move2.Attack, match.Move1.Block)
-    match.Player1HP -= damage1
-    if match.Player1HP < 0 {
-        match.Player1HP = 0
-    }
+	// Сохраняем здоровье ДО для логирования
+	oldPlayer1HP := match.Player1HP
+	oldPlayer2HP := match.Player2HP
 
-    // Расчет урона для игрока 2 (от атаки игрока 1)
-    damage2 := calculatePvPDamage(match.Player1.Strength, match.Move1.Attack, match.Move2.Block)
-    match.Player2HP -= damage2
-    if match.Player2HP < 0 {
-        match.Player2HP = 0
-    }
+	// Расчет урона для игрока 1 (от атаки игрока 2)
+	damage1 := calculatePvPDamage(match.Player2.Strength, match.Move2.Attack, match.Move1.Block)
+	match.Player1HP -= damage1
+	if match.Player1HP < 0 {
+		match.Player1HP = 0
+	}
 
-    // Логирование с отображением изменения здоровья
-    s.logCh <- fmt.Sprintf("PvP Раунд %d: %s нанес %d (%d❤️ → %d❤️), %s нанес %d (%d❤️ → %d❤️)", 
-        match.Round, 
-        match.Player1.Name, damage2, oldPlayer1HP, match.Player1HP,
-        match.Player2.Name, damage1, oldPlayer2HP, match.Player2HP)
+	// Расчет урона для игрока 2 (от атаки игрока 1)
+	damage2 := calculatePvPDamage(match.Player1.Strength, match.Move1.Attack, match.Move2.Block)
+	match.Player2HP -= damage2
+	if match.Player2HP < 0 {
+		match.Player2HP = 0
+	}
 
-    // Сбрасываем ходы для следующего раунда
-    match.Move1 = nil
-    match.Move2 = nil
-    match.Round++
+	// Логирование с отображением изменения здоровья
+	s.logCh <- fmt.Sprintf("PvP Раунд %d: %s нанес %d (%d❤️ → %d❤️), %s нанес %d (%d❤️ → %d❤️)",
+		match.Round,
+		match.Player1.Name, damage2, oldPlayer1HP, match.Player1HP,
+		match.Player2.Name, damage1, oldPlayer2HP, match.Player2HP)
+
+	// Сбрасываем ходы для следующего раунда
+	match.Move1 = nil
+	match.Move2 = nil
+	match.Round++
 }
 
 func calculatePvPDamage(strength, attack, block int) int {
 	// База: сила + случайный разброс
 	damage := strength + 5
-	
+
 	// Модификаторы атаки
 	switch attack {
 	case 0: // Head
@@ -449,17 +477,17 @@ func calculatePvPDamage(strength, attack, block int) int {
 	case 2: // Legs
 		damage = int(float64(damage) * 0.8)
 	}
-	
+
 	// Блок
 	if attack == block {
 		damage = damage / 2
 	}
-	
+
 	// Минимальный урон
 	if damage < 5 {
 		damage = 5
 	}
-	
+
 	return damage
 }
 

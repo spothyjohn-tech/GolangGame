@@ -7,19 +7,20 @@ import (
 	"game/player"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
-	"net/url"
 )
 
 type PvPClient struct {
-	serverURL  string
-	httpClient *http.Client
-	matchID    string
-	playerName string
-	running    bool
+	serverURL       string
+	httpClient      *http.Client
+	matchID         string
+	playerName      string
+	running         bool
+	lastTurnMessage string
 }
 
 func NewPvPClient(serverURL string) *PvPClient {
@@ -132,6 +133,7 @@ func (c *PvPClient) checkMatchStatus() (string, string) {
 }
 
 func (c *PvPClient) startBattle(p *player.Player) string {
+	c.lastTurnMessage = ""
 	fmt.Println("\n=== БОЙ НАЧИНАЕТСЯ ===")
 
 	for c.running {
@@ -166,58 +168,69 @@ func (c *PvPClient) startBattle(p *player.Player) string {
 
 		if strings.HasPrefix(status, "round_result:") {
 			c.printRoundResult(status, p)
-			time.Sleep(2 * time.Second)
+			time.Sleep(1 * time.Second)
 			continue
 		}
-		
+
 		if strings.HasPrefix(status, "wait_turn:") {
 			parts := strings.Split(status, ":")
-			if len(parts) == 2 {
-				turnPlayer := parts[1]
-				if turnPlayer == c.playerName {
-					fmt.Println("\n⚔️ ВАШ ХОД!")
+				if len(parts) == 2 {
+					turnPlayer := parts[1]
 
-						action := c.chooseAction(p)
+					isMyTurn := turnPlayer == c.playerName
 
-						if action == 1 {
-							c.openPvPChat()
+					if isMyTurn {
+						c.lastTurnMessage = ""
+						fmt.Println("\n⚔️ ВАШ ХОД!")
+					} else {
+						msg := fmt.Sprintf("⏳ Ожидание хода %s...", turnPlayer)
+						if c.lastTurnMessage != msg {
+							fmt.Println("\n" + msg)
+							c.lastTurnMessage = msg
+						}
+					}
+					
+					action := c.chooseAction(isMyTurn)
+
+					switch action {
+
+					case 1:
+						c.openPvPChat()
+						continue
+
+					case 2:
+						if !isMyTurn {
+							fmt.Println("❌ Сейчас не ваш ход!")
 							continue
 						}
 
-						if action == 2 {
-							attack := c.chooseHit()
-							block := c.chooseBlock()
+						attack := c.chooseHit()
+						block := c.chooseBlock()
 
-							moveData := fmt.Sprintf("%s|%s|%d|%d",
-								c.matchID, c.playerName, attack, block)
+						moveData := fmt.Sprintf("%s|%s|%d|%d",
+							c.matchID, c.playerName, attack, block)
 
-							c.httpClient.Post(fmt.Sprintf("%s/pvp/move", c.serverURL),
-								"text/plain",
-								strings.NewReader(moveData))
+						c.httpClient.Post(fmt.Sprintf("%s/pvp/move", c.serverURL),
+							"text/plain",
+							strings.NewReader(moveData))
 
-							fmt.Println("⏳ Ожидание противника, вы можете написать сообщение и нажать enter для отправки:")
-							c.waitWithChat()
+					case 3:
+						if !isMyTurn {
+							fmt.Println("❌ Предмет можно использовать только в свой ход!")
+							continue
 						}
+						c.useItemInBattle(p)
 
-						if action == 3 {
-							p.ShowInventory()
-							fmt.Println("Введите номер предмета:")
-							// логика использования предмета
-						}
-
-						if action == 4 {
-							p.ShowInventory()
-						}
-				} else {
-					fmt.Printf("\n⏳ Ожидание хода %s...\n", turnPlayer)
-					time.Sleep(2 * time.Second)
-				}
-			}
+					case 4:
+						p.ShowInventory()
+					}
+				} 
 		}
 
 		time.Sleep(500 * time.Millisecond)
+		
 	}
-
+	
 	return "error"
 }
 
@@ -294,19 +307,23 @@ func (c *PvPClient) chooseBlock() int {
 }
 
 func (c *PvPClient) sendChat(playerName, message string) {
-	endpoint := fmt.Sprintf("%s/pvp/chat?matchID=%s&player=%s&msg=%s", 
+	endpoint := fmt.Sprintf("%s/pvp/chat?matchID=%s&player=%s&msg=%s",
 		c.serverURL, c.matchID, url.QueryEscape(playerName), url.QueryEscape(message))
 	c.httpClient.Get(endpoint)
 }
 
-
-func (c *PvPClient) chooseAction(p *player.Player) int {
+func (c *PvPClient) chooseAction(isMyTurn bool) int {
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
+
 		fmt.Println("\n1 — Открыть чат")
-		fmt.Println("2 — Атака")
-		fmt.Println("3 — Использовать предмет")
+
+		if isMyTurn {
+			fmt.Println("2 — Атака")
+			fmt.Println("3 — Использовать предмет")
+		}
+
 		fmt.Println("4 — Инвентарь")
 		fmt.Print("Выберите действие: ")
 
@@ -314,11 +331,22 @@ func (c *PvPClient) chooseAction(p *player.Player) int {
 		input = strings.TrimSpace(input)
 
 		choice, err := strconv.Atoi(input)
-		if err == nil && choice >= 1 && choice <= 4 {
-			return choice
+		if err != nil {
+			fmt.Println("❌ Неверный ввод!")
+			continue
 		}
 
-		fmt.Println("❌ Неверный ввод!")
+		if isMyTurn {
+			if choice >= 1 && choice <= 4 {
+				return choice
+			}
+		} else {
+			if choice == 1 || choice == 4 {
+				return choice
+			}
+		}
+
+		fmt.Println("❌ Недоступное действие!")
 	}
 }
 
@@ -329,9 +357,21 @@ func (c *PvPClient) openPvPChat() {
 	fmt.Println("\n=== PvP ЧАТ ===")
 	fmt.Println("Введите /back для возврата")
 
-	go c.receivePvPChat()
-
 	for {
+		// Получаем историю 1 раз
+		resp, err := c.httpClient.Get(
+			fmt.Sprintf("%s/pvp/chat/history?matchID=%s",
+				c.serverURL, c.matchID))
+
+		if err == nil {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+
+			fmt.Println("\n--- ЧАТ ---")
+			fmt.Print(string(body))
+		}
+
+		fmt.Print("> ")
 		text, _ := reader.ReadString('\n')
 		text = strings.TrimSpace(text)
 
@@ -339,42 +379,115 @@ func (c *PvPClient) openPvPChat() {
 			return
 		}
 
-		c.sendChat(c.playerName, text)
-	}
-}
-
-func (c *PvPClient) receivePvPChat() {
-	for c.running {
-		resp, err := c.httpClient.Get(
-			fmt.Sprintf("%s/pvp/chat/history?matchID=%s",
-				c.serverURL, c.matchID))
-
-		if err != nil {
-			time.Sleep(2 * time.Second)
-			continue
-		}
-
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-
-		fmt.Println("\n--- ЧАТ ---")
-		fmt.Println(string(body))
-
-		time.Sleep(2 * time.Second)
-	}
-}
-func (c *PvPClient) waitWithChat() {
-	reader := bufio.NewReader(os.Stdin)
-
-	for {
-		text, _ := reader.ReadString('\n')
-		text = strings.TrimSpace(text)
-
 		if text != "" {
 			c.sendChat(c.playerName, text)
 		}
-
-		time.Sleep(1 * time.Second)
-		break
 	}
+}
+
+
+func manageInventory(p *player.Player, reader *bufio.Reader) {
+	for {
+		fmt.Println("\n" + strings.Repeat("=", 50))
+		fmt.Println("УПРАВЛЕНИЕ ИНВЕНТАРЕМ")
+		fmt.Println(strings.Repeat("=", 50))
+
+		fmt.Println("1. Показать инвентарь")
+		fmt.Println("2. Экипировать предмет")
+		fmt.Println("3. Снять предмет")
+		fmt.Println("4. Использовать предмет")
+		fmt.Println("5. Назад")
+		fmt.Print("Выберите действие: ")
+
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+
+		choice, err := strconv.Atoi(input)
+		if err != nil {
+			fmt.Println("Неверный ввод!")
+			continue
+		}
+
+		switch choice {
+		case 1:
+			p.ShowInventory()
+
+		case 2:
+			p.ShowInventory()
+			if len(p.Inventory) == 0 {
+				fmt.Println("Нет предметов для экипировки.")
+				continue
+			}
+			fmt.Print("Введите номер предмета для экипировки: ")
+			idxInput, _ := reader.ReadString('\n')
+			idxInput = strings.TrimSpace(idxInput)
+			idx, _ := strconv.Atoi(idxInput)
+			if idx >= 1 && idx <= len(p.Inventory) {
+				p.EquipItem(idx - 1)
+			} else {
+				fmt.Println("Неверный номер!")
+			}
+
+		case 3:
+			if len(p.Equipped) == 0 {
+				fmt.Println("Нет надетых предметов.")
+				continue
+			}
+			fmt.Println("\n=== НАДЕТО ===")
+			for i, item := range p.Equipped {
+				fmt.Printf("%d. %s\n", i+1, item.Name)
+			}
+			fmt.Print("Введите номер предмета для снятия: ")
+			idxInput, _ := reader.ReadString('\n')
+			idxInput = strings.TrimSpace(idxInput)
+			idx, _ := strconv.Atoi(idxInput)
+			if idx >= 1 && idx <= len(p.Equipped) {
+				p.UnequipItem(idx - 1)
+			} else {
+				fmt.Println("Неверный номер!")
+			}
+
+		case 4:
+			p.ShowInventory()
+			if len(p.Inventory) == 0 {
+				fmt.Println("Нет предметов для использования.")
+				continue
+			}
+			fmt.Print("Введите номер предмета для использования: ")
+			idxInput, _ := reader.ReadString('\n')
+			idxInput = strings.TrimSpace(idxInput)
+			idx, _ := strconv.Atoi(idxInput)
+			if idx >= 1 && idx <= len(p.Inventory) {
+				p.UseItem(idx - 1)
+			} else {
+				fmt.Println("Неверный номер!")
+			}
+
+		case 5:
+			return
+		}
+	}
+}
+
+func (c *PvPClient) useItemInBattle(p *player.Player) {
+	reader := bufio.NewReader(os.Stdin)
+
+	if len(p.Inventory) == 0 {
+		fmt.Println("Инвентарь пуст.")
+		return
+	}
+
+	p.ShowInventory()
+	fmt.Print("Введите номер предмета для использования: ")
+
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+
+	idx, err := strconv.Atoi(input)
+	if err != nil || idx < 1 || idx > len(p.Inventory) {
+		fmt.Println("❌ Неверный номер!")
+		return
+	}
+
+	p.UseItem(idx - 1)
 }

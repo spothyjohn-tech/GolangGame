@@ -5,16 +5,16 @@ import (
 	"fmt"
 	"game/client"
 	"game/player"
+	"game/pvp"
 	"game/shop"
 	"game/tournament"
-	"game/pvp"
+	"io"
+	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
-	"regexp"
-	"net/http"
-	"io"
 )
 
 func isValidNickname(name string) bool {
@@ -25,7 +25,7 @@ func isValidNickname(name string) bool {
 func main() {
 	fmt.Println("=== ДОБРО ПОЖАЛОВАТЬ В ВООБРАЖАРИУМ ===")
 	fmt.Print("Введите имя вашего Хранителя: ")
-	
+
 	reader := bufio.NewReader(os.Stdin)
 	var name string
 
@@ -58,24 +58,24 @@ func main() {
 	p := player.NewPlayer(name)
 	shopInstance := shop.NewShop()
 	tournamentInstance := tournament.NewTournament(p)
-	
+
 	// Добавляем стартовые предметы (убираем вызов items.GetAllItems)
 	// Вместо этого добавим базовые предметы через магазин позже
 	fmt.Println("💰 Вам выдано 150 воображения для стартовых покупок!")
-	
+
 	for {
 		showMainMenu(p, tournamentInstance)
-		
+
 		fmt.Print("Выберите действие: ")
 		input, _ := reader.ReadString('\n')
 		input = strings.TrimSpace(input)
-		
+
 		choice, err := strconv.Atoi(input)
 		if err != nil {
 			fmt.Println("Неверный ввод!")
 			continue
 		}
-		
+
 		switch choice {
 		case 1:
 			// Бой с гильдией
@@ -96,15 +96,15 @@ func main() {
 			} else {
 				fmt.Println("\n❌ Нет доступных гильдий для битвы")
 			}
-			
+
 		case 2:
 			// PvP
 			fmt.Println("\n=== PvP РЕЖИМ ===")
 			fmt.Println("Подключение к серверу localhost:8080...")
-			
-			pvpClient := pvp.NewPvPClient("https://fluffy-space-spork-wrjqg7qq9p64fv9p5-8080.app.github.dev/")
+
+			pvpClient := pvp.NewPvPClient("https://jubilant-space-parakeet-697x4gxxrqgph9vx-8080.app.github.dev/")
 			result := pvpClient.Play(p)
-			
+
 			if result == "loss" {
 				p.AddImagination(50)
 				fmt.Println("✨ За участие в PvP вы получили 50 воображения!")
@@ -113,39 +113,39 @@ func main() {
 				p.Wins++
 				fmt.Println("✨ За победу в PvP вы получили 100 воображения!")
 			}
-			
+
 		case 3:
 			// Чат
 			fmt.Println("\n=== ЧАТ ===")
 			fmt.Println("Подключение к чат-серверу localhost:8080...")
-			
+
 			// Создаем клиент
-			chatClient := client.NewChatClient("https://fluffy-space-spork-wrjqg7qq9p64fv9p5-8080.app.github.dev/")
-			
+			chatClient := client.NewChatClient("https://jubilant-space-parakeet-697x4gxxrqgph9vx-8080.app.github.dev/")
+
 			// Запускаем чат (он БЛОКИРУЕТ выполнение до выхода)
 			chatClient.Start()
-			
+
 			// После выхода из чата показываем меню снова
 			fmt.Println("\n🔙 Возврат в главное меню...")
 			// Небольшая пауза для читаемости
 			time.Sleep(1 * time.Second)
-			
+
 		case 4:
 			// Магазин
 			shopInstance.Visit(p)
-			
+
 		case 5:
 			// Инвентарь / Экипировка
 			manageInventory(p, reader)
-			
+
 		case 6:
 			// Показать прогресс
 			tournamentInstance.ShowProgress()
-			
+
 		case 0:
 			fmt.Println("Выход из игры...")
 			return
-			
+
 		default:
 			fmt.Println("Неверный выбор!")
 		}
@@ -156,9 +156,9 @@ func showMainMenu(p *player.Player, t *tournament.Tournament) {
 	fmt.Println("\n" + strings.Repeat("=", 50))
 	fmt.Println("ГЛАВНОЕ МЕНЮ")
 	fmt.Println(strings.Repeat("=", 50))
-	
+
 	p.ShowStats()
-	
+
 	fmt.Println("\nДОСТУПНЫЕ ДЕЙСТВИЯ:")
 	fmt.Println("1. Бой с гильдией")
 	fmt.Println("2. PvP (игрок против игрока)")
@@ -174,27 +174,27 @@ func manageInventory(p *player.Player, reader *bufio.Reader) {
 		fmt.Println("\n" + strings.Repeat("=", 50))
 		fmt.Println("УПРАВЛЕНИЕ ИНВЕНТАРЕМ")
 		fmt.Println(strings.Repeat("=", 50))
-		
+
 		fmt.Println("1. Показать инвентарь")
 		fmt.Println("2. Экипировать предмет")
 		fmt.Println("3. Снять предмет")
 		fmt.Println("4. Использовать предмет (вне боя)")
 		fmt.Println("5. Назад")
 		fmt.Print("Выберите действие: ")
-		
+
 		input, _ := reader.ReadString('\n')
 		input = strings.TrimSpace(input)
-		
+
 		choice, err := strconv.Atoi(input)
 		if err != nil {
 			fmt.Println("Неверный ввод!")
 			continue
 		}
-		
+
 		switch choice {
 		case 1:
 			p.ShowInventory()
-			
+
 		case 2:
 			p.ShowInventory()
 			if len(p.Inventory) == 0 {
@@ -210,7 +210,7 @@ func manageInventory(p *player.Player, reader *bufio.Reader) {
 			} else {
 				fmt.Println("Неверный номер!")
 			}
-			
+
 		case 3:
 			if len(p.Equipped) == 0 {
 				fmt.Println("Нет надетых предметов.")
@@ -229,7 +229,7 @@ func manageInventory(p *player.Player, reader *bufio.Reader) {
 			} else {
 				fmt.Println("Неверный номер!")
 			}
-			
+
 		case 4:
 			p.ShowInventory()
 			if len(p.Inventory) == 0 {
@@ -245,7 +245,7 @@ func manageInventory(p *player.Player, reader *bufio.Reader) {
 			} else {
 				fmt.Println("Неверный номер!")
 			}
-			
+
 		case 5:
 			return
 		}
