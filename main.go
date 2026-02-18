@@ -22,24 +22,31 @@ func main() {
 	name, _ := reader.ReadString('\n')
 	name = strings.TrimSpace(name)
 	
+	for {
 	if name == "" {
-		name = "Хранитель"
+		fmt.Print("Имя не может быть пустым. Введите имя: ")
+		name, _ = reader.ReadString('\n')
+		name = strings.TrimSpace(name)
+		continue
 	}
+
+	if !pvp.ValidateName(name) {
+		fmt.Println("Имя должно содержать только латиницу, цифры и _")
+		fmt.Print("Введите корректное имя: ")
+		name, _ = reader.ReadString('\n')
+		name = strings.TrimSpace(name)
+		continue
+	}
+	break
+	}	
 	
 	fmt.Printf("\nПриветствую, %s!\n", name)
 	fmt.Println("Ваше путешествие начинается...\n")
 	
-	// Создаем игрока
 	p := player.NewPlayer(name)
-	
-	// Создаем магазин
 	shopInstance := shop.NewShop()
-	
-	// Создаем турнир
 	tournamentInstance := tournament.NewTournament(p)
 	
-	// Добавляем стартовые предметы (убираем вызов items.GetAllItems)
-	// Вместо этого добавим базовые предметы через магазин позже
 	fmt.Println("💰 Вам выдано 150 воображения для стартовых покупок!")
 	
 	for {
@@ -57,7 +64,6 @@ func main() {
 		
 		switch choice {
 		case 1:
-			// Бой с гильдией
 			if tournamentInstance.IsComplete() && !tournamentInstance.IsFinalDefeated() {
 				fmt.Println("\n👾 Вы победили все гильдии! Пора бросить вызов Древнему Хаосу!")
 				fmt.Print("Начать финальный бой? (да/нет): ")
@@ -77,11 +83,10 @@ func main() {
 			}
 			
 		case 2:
-			// PvP
 			fmt.Println("\n=== PvP РЕЖИМ ===")
-			fmt.Println("Подключение к серверу localhost:8080...")
+			fmt.Println("Подключение к серверу...")
 			
-			pvpClient := pvp.NewPvPClient("https://fluffy-space-spork-wrjqg7qq9p64fv9p5-8080.app.github.dev/")
+			pvpClient := pvp.NewPvPClient("https://glowing-orbit-jjwpq5pp4pqq25wqw-8080.app.github.dev/")
 			result := pvpClient.Play(p)
 			
 			if result == "loss" {
@@ -94,31 +99,22 @@ func main() {
 			}
 			
 		case 3:
-			// Чат
 			fmt.Println("\n=== ЧАТ ===")
-			fmt.Println("Подключение к чат-серверу localhost:8080...")
+			fmt.Println("Подключение к чат-серверу...")
 			
-			// Создаем клиент
-			chatClient := client.NewChatClient("https://fluffy-space-spork-wrjqg7qq9p64fv9p5-8080.app.github.dev/")
-			
-			// Запускаем чат (он БЛОКИРУЕТ выполнение до выхода)
+			chatClient := client.NewChatClient("https://glowing-orbit-jjwpq5pp4pqq25wqw-8080.app.github.dev/")
 			chatClient.Start()
 			
-			// После выхода из чата показываем меню снова
 			fmt.Println("\n🔙 Возврат в главное меню...")
-			// Небольшая пауза для читаемости
 			time.Sleep(1 * time.Second)
 			
 		case 4:
-			// Магазин
 			shopInstance.Visit(p)
 			
 		case 5:
-			// Инвентарь / Экипировка
 			manageInventory(p, reader)
 			
 		case 6:
-			// Показать прогресс
 			tournamentInstance.ShowProgress()
 			
 		case 0:
@@ -140,7 +136,7 @@ func showMainMenu(p *player.Player, t *tournament.Tournament) {
 	
 	fmt.Println("\nДОСТУПНЫЕ ДЕЙСТВИЯ:")
 	fmt.Println("1. Бой с гильдией")
-	fmt.Println("2. PvP (игрок против игрока)")
+	fmt.Println("2. PvP (игрок против игрока)") 
 	fmt.Println("3. Чат")
 	fmt.Println("4. Магазин")
 	fmt.Println("5. Инвентарь / Экипировка")
