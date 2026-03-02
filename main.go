@@ -52,6 +52,7 @@ func main() {
 		break
 	}
 
+	// tournament.IntroPlay()
 	registerNicknameOnServer(name)
 	fmt.Printf("\nПриветствую, %s!\n", name)
 
@@ -102,16 +103,18 @@ func main() {
 			fmt.Println("\n=== PvP РЕЖИМ ===")
 			fmt.Println("Подключение к серверу localhost:8080...")
 
-			pvpClient := pvp.NewPvPClient("https://jubilant-space-parakeet-697x4gxxrqgph9vx-8080.app.github.dev/")
+			pvpClient := pvp.NewPvPClient("https://curly-orbit-966q99p46jq29vww-8080.app.github.dev/")
 			result := pvpClient.Play(p)
 
 			if result == "loss" {
 				p.AddImagination(50)
 				fmt.Println("✨ За участие в PvP вы получили 50 воображения!")
+				p.HP = p.GetMaxHP()
 			} else if result == "win" {
 				p.AddImagination(100)
 				p.Wins++
 				fmt.Println("✨ За победу в PvP вы получили 100 воображения!")
+				p.HP = p.GetMaxHP()
 			}
 
 		case 3:
@@ -120,7 +123,7 @@ func main() {
 			fmt.Println("Подключение к чат-серверу localhost:8080...")
 
 			// Создаем клиент
-			chatClient := client.NewChatClient("https://jubilant-space-parakeet-697x4gxxrqgph9vx-8080.app.github.dev/")
+			chatClient := client.NewChatClient("https://curly-orbit-966q99p46jq29vww-8080.app.github.dev/")
 
 			// Запускаем чат (он БЛОКИРУЕТ выполнение до выхода)
 			chatClient.Start()
@@ -253,7 +256,7 @@ func manageInventory(p *player.Player, reader *bufio.Reader) {
 }
 
 func checkNicknameExistsOnServer(name string) bool {
-	resp, err := http.Get("https://your-server-url/check-nick?name=" + name)
+	resp, err := http.Get("https://curly-orbit-966q99p46jq29vww-8080.app.github.dev/check-nick?name=" + name)
 	if err != nil {
 		return false
 	}
@@ -264,5 +267,6 @@ func checkNicknameExistsOnServer(name string) bool {
 }
 
 func registerNicknameOnServer(name string) {
-	http.Post("https://your-server-url/register-nick", "text/plain", strings.NewReader(name))
+	http.Post("https://curly-orbit-966q99p46jq29vww-8080.app.github.dev/register-nick", "text/plain", strings.NewReader(name))
 }
+

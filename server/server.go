@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type ChatServer struct {
@@ -48,6 +49,8 @@ type PvPMatch struct {
 	ResultForPlayer2 string
 	Chat             []string
 	chatMutex        sync.Mutex
+	Finished bool
+	FinishedAt time.Time
 }
 
 type MoveData struct {
@@ -74,6 +77,7 @@ func (s *ChatServer) Start(port string) {
 	http.HandleFunc("/", s.handleRequests)
 	http.HandleFunc("/check-nick", s.handleCheckNick)
 	http.HandleFunc("/register-nick", s.handleRegisterNick)
+	// Чат для пвп
 	http.HandleFunc("/pvp/chat", s.HandlePvPChat)
 	http.HandleFunc("/pvp/chat/history", s.HandlePvPChatHistory)
 
@@ -86,7 +90,7 @@ func (s *ChatServer) Start(port string) {
 	s.logCh <- "Сервер запущен на порту " + port
 	http.ListenAndServe(":"+port, nil)
 }
-
+// Печатаем логи на сервере (все запросы)
 func (s *ChatServer) printLogs() {
 	for msg := range s.logCh {
 		fmt.Println(msg)
@@ -181,6 +185,14 @@ func (s *ChatServer) handlePvPJoin(w http.ResponseWriter, r *http.Request) {
 		Strength: strength,
 	}
 
+    s.pvpMutex.Lock()
+    for id, match := range s.pvpMatches {
+        if match.Finished {
+            delete(s.pvpMatches, id)
+        }
+    }
+    s.pvpMutex.Unlock()
+
 	s.pvpMutex.RLock()
 	for _, m := range s.pvpMatches {
 		if m.Player1.Name == player.Name || m.Player2.Name == player.Name {
@@ -210,6 +222,8 @@ func (s *ChatServer) handlePvPJoin(w http.ResponseWriter, r *http.Request) {
 			Player1HP: player1.HP,
 			Player2HP: player.HP,
 			Round:     1,
+			Finished:  false,
+    		Chat:      make([]string, 0), // Инициализируем чат
 		}
 
 		s.pvpMutex.Lock()
@@ -258,6 +272,9 @@ func (s *ChatServer) handlePvPStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *ChatServer) handlePvPBattle(w http.ResponseWriter, r *http.Request) {
+
+	
+
 	matchID := r.URL.Query().Get("matchId")
 	playerName := r.URL.Query().Get("player")
 
@@ -272,19 +289,6 @@ func (s *ChatServer) handlePvPBattle(w http.ResponseWriter, r *http.Request) {
 
 	match.mutex.Lock()
 	defer match.mutex.Unlock()
-
-	// if match.Move1 != nil && match.Move2 != nil {
-	// 	if match.ResultForPlayer1 != "" && match.Player1.Name == playerName {
-	// 		fmt.Fprint(w, match.ResultForPlayer1)
-	// 		match.ResultForPlayer1 = ""
-	// 		return
-	// 	}
-	// 	if match.ResultForPlayer2 != "" && match.Player2.Name == playerName {
-	// 		fmt.Fprint(w, match.ResultForPlayer2)
-	// 		match.ResultForPlayer2 = ""
-	// 		return
-	// 	}
-	// }
 
 	// Проверка завершения боя
 	if match.Player1HP <= 0 || match.Player2HP <= 0 {
@@ -306,8 +310,26 @@ func (s *ChatServer) handlePvPBattle(w http.ResponseWriter, r *http.Request) {
 		match.Player1.HP = match.Player1.MaxHP
 		match.Player2.HP = match.Player2.MaxHP
 		s.pvpMutex.Lock()
-		delete(s.pvpMatches, matchID)
+		match.Finished = true
+		match.FinishedAt = time.Now()
 		s.pvpMutex.Unlock()
+		return
+	}
+
+	if match.Finished {
+		if match.Player1.Name == playerName {
+			if match.Player1HP <= 0 {
+				fmt.Fprint(w, "finished:loss")
+			} else {
+				fmt.Fprint(w, "finished:win")
+			}
+		} else {
+			if match.Player2HP <= 0 {
+				fmt.Fprint(w, "finished:loss")
+			} else {
+				fmt.Fprint(w, "finished:win")
+			}
+		}
 		return
 	}
 
@@ -492,24 +514,33 @@ func calculatePvPDamage(strength, attack, block int) int {
 }
 
 func (s *ChatServer) HandlePvPChat(w http.ResponseWriter, r *http.Request) {
-	matchID := r.URL.Query().Get("matchID")
-	player := r.URL.Query().Get("player")
-	msg := r.URL.Query().Get("msg")
+    matchID := r.URL.Query().Get("matchID")
+    player := r.URL.Query().Get("player")
+    msg := r.URL.Query().Get("msg")
 
-	s.pvpMutex.RLock()
-	match, ok := s.pvpMatches[matchID]
-	s.pvpMutex.RUnlock()
+    // Берём pvpMutex, чтобы безопасно получить матч
+    s.pvpMutex.Lock()
+    match, exists := s.pvpMatches[matchID]
+    if !exists {
+        s.pvpMutex.Unlock()
+        http.Error(w, "Match not found", http.StatusNotFound)
+        return
+    }
 
-	if ok {
-		match.chatMutex.Lock()
-		match.Chat = append(match.Chat, fmt.Sprintf("[%s]: %s", player, msg))
-		// Ограничиваем историю чата для производительности
-		if len(match.Chat) > 10 {
-			match.Chat = match.Chat[1:]
-		}
-		match.chatMutex.Unlock()
-		w.Write([]byte("ok"))
-	}
+    // Блокируем матч и отпускаем глобальный pvpMutex
+    match.mutex.Lock()
+    s.pvpMutex.Unlock()
+    defer match.mutex.Unlock()
+
+    // Работа с чатом
+    match.chatMutex.Lock()
+    match.Chat = append(match.Chat, fmt.Sprintf("[%s]: %s", player, msg))
+    if len(match.Chat) > 10 {
+        match.Chat = match.Chat[1:]
+    }
+    match.chatMutex.Unlock()
+
+    w.Write([]byte("ok"))
 }
 func (s *ChatServer) handleCheckNick(w http.ResponseWriter, r *http.Request) {
 	name := strings.ToLower(r.URL.Query().Get("name"))
@@ -553,3 +584,8 @@ func (s *ChatServer) handleRegisterNick(w http.ResponseWriter, r *http.Request) 
 
 	fmt.Fprint(w, "registered")
 }
+
+func (p *PvPMatch) SetHpFull(){
+	p.Player1.HP = p.Player1.MaxHP
+	p.Player2.HP = p.Player2.MaxHP
+} 

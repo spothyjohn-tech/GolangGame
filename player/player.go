@@ -61,9 +61,9 @@ func (p *Player) EquipItem(index int) bool {
 		fmt.Println("Неверный номер предмета")
 		return false
 	}
-	
+
 	item := p.Inventory[index]
-	
+
 	// Проверяем, можно ли экипировать (не расходный)
 	if item.Effect.Heal > 0 || item.Effect.StunRounds > 0 || item.Effect.SpecialEffect != "" {
 		if item.Effect.Heal > 0 {
@@ -75,11 +75,11 @@ func (p *Player) EquipItem(index int) bool {
 		}
 		return false
 	}
-	
+
 	// Удаляем из инвентаря и добавляем в экипировку
 	p.Inventory = append(p.Inventory[:index], p.Inventory[index+1:]...)
 	p.Equipped = append(p.Equipped, item)
-	
+
 	// Применяем эффекты
 	if item.Effect.MaxHP > 0 {
 		oldMax := p.MaxHP
@@ -87,7 +87,7 @@ func (p *Player) EquipItem(index int) bool {
 		p.HP += item.Effect.MaxHP
 		fmt.Printf("❤️ Максимальное здоровье увеличено: %d -> %d\n", oldMax, p.MaxHP)
 	}
-	
+
 	fmt.Printf("✅ Экипировано: %s\n", item.Name)
 	return true
 }
@@ -97,11 +97,11 @@ func (p *Player) UnequipItem(index int) bool {
 		fmt.Println("Неверный номер предмета")
 		return false
 	}
-	
+
 	item := p.Equipped[index]
 	p.Equipped = append(p.Equipped[:index], p.Equipped[index+1:]...)
 	p.Inventory = append(p.Inventory, item)
-	
+
 	if item.Effect.MaxHP > 0 {
 		p.MaxHP -= item.Effect.MaxHP
 		if p.HP > p.MaxHP {
@@ -109,7 +109,7 @@ func (p *Player) UnequipItem(index int) bool {
 		}
 		fmt.Printf("❤️ Максимальное здоровье уменьшено: %d\n", p.MaxHP)
 	}
-	
+
 	fmt.Printf("✅ Снято: %s\n", item.Name)
 	return true
 }
@@ -119,34 +119,20 @@ func (p *Player) UseItem(index int) (*items.ItemEffect, bool) {
 		fmt.Println("Неверный номер предмета")
 		return nil, false
 	}
-	
+
 	item := p.Inventory[index]
 	color := item.GetRarityColor()
-	fmt.Printf("\n%s✨ Используется: %s\033[0m\n", color, item.Name)
-	
-	// Применяем эффект
-	p.ApplyItemEffect(item.Effect)
-	
-	// Удаляем использованный предмет
-	p.Inventory = append(p.Inventory[:index], p.Inventory[index+1:]...)
-	fmt.Println("Предмет использован")
-	
-	return &item.Effect, true
-}
+	if item.Effect.MaxHP > 0 || item.Effect.Strength > 0 {
+		fmt.Println("Данную вещь можно только экипировать")
+		return nil, false
+	} else {
+		fmt.Printf("\n%s✨ Используется: %s\033[0m\n", color, item.Name)
 
-func (p *Player) ApplyItemEffect(effect items.ItemEffect) {
-	if effect.Heal > 0 {
-		p.Heal(effect.Heal)
-	}
-	
-	if effect.Strength > 0 {
-		p.ActiveEffects["strength_bonus"] = effect.Strength
-		fmt.Printf("⚔️ Сила увеличена на %d до конца боя!\n", effect.Strength)
-	}
-	
-	if effect.Imagination > 0 {
-		p.Imagination += effect.Imagination
-		fmt.Printf("✨ Воображение увеличено на %d! Теперь: %d\n", effect.Imagination, p.Imagination)
+		// Удаляем использованный предмет
+		p.Inventory = append(p.Inventory[:index], p.Inventory[index+1:]...)
+		fmt.Println("Предмет использован")
+
+		return &item.Effect, true
 	}
 }
 
@@ -206,7 +192,7 @@ func (p *Player) ShowInventory() {
 			fmt.Printf("%s%d. %s - %s\033[0m\n", color, i+1, item.Name, item.Description)
 		}
 	}
-	
+
 	if len(p.Equipped) > 0 {
 		fmt.Println("\n=== ⚔️ ЭКИПИРОВАНО ===")
 		for i, item := range p.Equipped {
@@ -214,7 +200,7 @@ func (p *Player) ShowInventory() {
 			fmt.Printf("%s%d. %s\033[0m\n", color, i+1, item.Name)
 		}
 	}
-	
+
 	p.ShowStats()
 }
 

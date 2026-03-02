@@ -141,3 +141,7 @@ func (t *Tournament) ShowProgress() {
 	}
 	fmt.Println("==========================")
 }
+
+func IntroPlay() {
+	story.Introduction()
+}
